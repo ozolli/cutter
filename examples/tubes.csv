@@ -1,0 +1,9 @@
+# Pieces pour structure metallique
+# Format: label,longueur(mm),quantite
+label,longueur,quantite
+Poteau,2500,6
+Poutre_principale,3200,4
+Poutre_secondaire,2400,8
+Jambe_force,1800,8
+Contreventement,1200,12
+Entrait,800,16

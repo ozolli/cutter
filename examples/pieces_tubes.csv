@@ -1,0 +1,23 @@
+# Pieces a decouper avec dimensions de tubes
+# Format: label,longueur(mm),quantite,diametre(mm),epaisseur(mm)
+label,longueur,quantite,diametre,epaisseur
+# Tubes 40x2 - structure legere
+Entretoise_40,450,8,40,2
+Renfort_40,320,12,40,2
+# Tubes 50x3 - ossature standard
+Pied_50,2200,4,50,3
+Traverse_50,1500,6,50,3
+Lisse_50,1800,4,50,3
+# Tubes 60x3 - structure moyenne
+Poteau_60x3,2400,4,60,3
+Poutre_60x3,3200,2,60,3
+# Tubes 60x4 - structure renforcee
+Montant_60x4,2500,3,60,4
+Support_60x4,800,5,60,4
+Jambe_60x4,1200,4,60,4
+# Tubes 80x4 - porteurs
+Pilier_80,2800,2,80,4
+Sommier_80,4000,2,80,4
+# Tubes 100x5 - structure lourde
+Colonne_100,3000,2,100,5
+Poutre_maitresse,5500,1,100,5

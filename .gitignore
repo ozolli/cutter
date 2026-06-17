@@ -1,0 +1,14 @@
+# Build artifacts
+obj/
+bin/
+*.o
+
+# Databases (runtime state)
+*.db
+
+# Backup / editor files
+*.bak
+*~
+
+# Generated output
+*.pdf

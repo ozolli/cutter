@@ -1,0 +1,11 @@
+# Stock tubes acier - differents diametres et epaisseurs
+# Format: label,longueur(mm),quantite(-1=illimite),cout,diametre(mm),epaisseur(mm)
+label,longueur,quantite,cout,diametre,epaisseur
+Tube_40x2_6m,6000,-1,0.80,40,2
+Tube_50x3_6m,6000,-1,1.00,50,3
+Tube_60x3_6m,6000,-1,1.20,60,3
+Tube_60x4_6m,6000,-1,1.50,60,4
+Tube_80x4_6m,6000,-1,2.00,80,4
+Tube_100x5_6m,6000,-1,3.00,100,5
+Chute_50x3_2m,2100,2,0.30,50,3
+Chute_60x4_1.5m,1480,1,0.25,60,4

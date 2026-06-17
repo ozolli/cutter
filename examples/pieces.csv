@@ -1,0 +1,9 @@
+# Exemple de liste de pieces a decouper
+# Format: label,longueur(mm),quantite
+label,longueur,quantite
+Montant_vertical,2100,8
+Traverse_haute,1800,4
+Traverse_basse,1800,4
+Entretoise,600,12
+Support_etagere,450,16
+Renfort,300,8

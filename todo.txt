@@ -1,0 +1,12 @@
+1. Dans la vue Résultats et l'export pdf remplacer "Barre n" par l'ID de la barre ou de la chute.
+
+2. Ne pas ajouter la longueur de la chute dans son label, elle est indiquée dans la colonne longueur.
+
+3. Ne pas substituer des espaces par des underscores dans les labels. C'est inutile et laid.
+
+4. Supprimer les décimales non significatives pour les épaisseurs de tube dans les labels des chutes et enlever le "D" avant le diamètre.
+En résumé, utiliser le label de la barre d'origine avec le préfixe Chute et un espace.
+
+5. la ligne Barres: | Chute totale: | Rendement: | Trait de scie: dans l'export pdf est à supprimer.
+
+6. Il n'y a pas assez d'espace entre la représentation graphique d'une barre et le titre de la barre suivante dans l'export pdf. Ajouter quelques pixels.
