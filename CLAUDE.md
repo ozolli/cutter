@@ -4,20 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cutter is a linear cutting optimizer for Linux - a standalone alternative to SmartCut.Pro. It optimizes cutting of bars, boards, and tubes to minimize waste. It ships as both a command-line tool and a GTK4 desktop application, sharing a common solver core, and keeps a persistent stock/offcut inventory in SQLite.
+Cutter is a linear cutting optimizer for Linux - a standalone alternative to SmartCut.Pro. It optimizes cutting of bars, boards, and tubes to minimize waste. It is a GTK4 desktop application built on a standalone solver core, and keeps a persistent stock/offcut inventory in SQLite. (A separate benchmark tool reuses the same core.)
 
 ## Build Commands
 
 ```bash
-make              # Build the GUI (default target)
-make gui          # Build the GTK4 GUI       -> bin/cutter-gtk
-make cli          # Build the CLI            -> bin/cutter
-make benchmark    # Build the benchmark tool -> bin/cutter-benchmark
-make demo         # Build and run the CLI demo
+make              # Build the GUI (default target) -> bin/cutter-gtk
+make gui          # Same as `make all`
+make benchmark    # Build the benchmark tool       -> bin/cutter-benchmark
 make clean        # Clean build artifacts
-make install      # Install the CLI   (PREFIX=/usr/local)
-make install-gui  # Install the GUI
-./bin/cutter --help
+make install      # Install the GUI (PREFIX=/usr/local)
+./bin/cutter-gtk  # Run the app
 ```
 
 ## Dependencies
@@ -26,39 +23,19 @@ make install-gui  # Install the GUI
 sudo apt install libglpk-dev     # GLPK (GNU Linear Programming Kit) - LP/ILP solver
 sudo apt install libcairo2-dev   # Cairo  - PDF export
 sudo apt install libsqlite3-dev  # SQLite - inventory database
-sudo apt install libgtk-4-dev    # GTK4   - desktop GUI (not needed for the CLI)
+sudo apt install libgtk-4-dev    # GTK4   - desktop GUI
 ```
 
-## Usage (CLI)
+## Usage
 
-The CLI is organized into subcommands:
+`cutter-gtk` is a desktop app with views for the inventory, the pieces to cut,
+the optimization run, the results (with PDF export) and the settings. The stock
+parameters (saw kerf, minimum usable offcut, database path, network mode) are
+configured in the Settings view and persisted to `~/.cutter/settings.conf`.
 
-```bash
-# Demonstration
-./bin/cutter --demo
-./bin/cutter --demo --pdf plan.pdf
-
-# Run a cutting session
-./bin/cutter cut -p pieces.csv -s stock.csv -P plan.pdf -v
-./bin/cutter cut -p pieces.csv --use-inventory --apply --save-offcuts
-
-# Manage the stock inventory (SQLite)
-./bin/cutter stock add Tube_6m 6000 --diameter 50 --thickness 3 --qty 10
-./bin/cutter stock list [--all]
-./bin/cutter stock remove <id> [--qty N]
-./bin/cutter stock delete <id>
-```
-
-`cut` options:
-- `-p, --pieces FILE`    CSV of pieces to cut (required)
-- `-s, --stock FILE`     CSV of stock (or use `--use-inventory`)
-- `-I, --use-inventory`  Use stock from the inventory database
-- `-A, --apply`          Apply the cut to the inventory (decrement stock)
-- `-S, --save-offcuts`   Save usable offcuts back into the inventory
-- `-P, --pdf FILE`       Export the cutting diagram as PDF
-- `-k, --kerf MM`        Saw kerf in mm (default from config)
-- `-m, --min-offcut MM`  Minimum usable offcut length (default from config)
-- `-v, --verbose`        Show progress (also enables solver debug output)
+There is no command-line interface: a previous `cutter` CLI was removed. The
+solver core (CSV/ODS import, column generation, PDF export, SQLite inventory) is
+linked directly into the GUI.
 
 ## Architecture
 
@@ -78,15 +55,16 @@ src/
 ├── db.h/c           # SQLite inventory: stock, offcuts, cutting sessions
 ├── settings.h/c     # App settings (kerf, min offcut, db path) loaded from config
 ├── pdf_export.h/c   # PDF diagram + stock list export (Cairo)
-├── main.c           # CLI entry point (cut / stock / --demo)
-├── benchmark.c      # Standalone benchmark harness
+├── benchmark.c      # Standalone benchmark harness (reuses the core)
+├── gui_main.c       # GUI entry point (main)
 └── gui/             # GTK4 desktop app (cutter_app, cutter_window,
                      #   views/, models/) — shares the solver core
 ```
 
 The solver core (`colgen`, `glpk_master`, `knapsack`, `csv_io`, `ods_io`, `pdf_export`,
-`db`, `settings`) is compiled into both the CLI and the GUI. The GUI sources live under
-`src/gui/` and are only built by the `gui` target.
+`db`, `settings`) is compiled into the GUI (`bin/cutter-gtk`) and the benchmark
+(`bin/cutter-benchmark`). The GUI sources live under `src/gui/` and are built by the
+default `gui` target.
 
 **Algorithm Flow**:
 0. Greedy offcut pre-pass: consume offcuts (chutes) from SMALLEST to LARGEST,
@@ -112,7 +90,7 @@ The solver core (`colgen`, `glpk_master`, `knapsack`, `csv_io`, `ods_io`, `pdf_e
 - French-language project (interface messages in French; keep new user-facing strings French)
 - `CSPInstance` is large (~16 MB, due to the static `patterns`/`cuts` arrays). **Always
   heap-allocate it** (`calloc`) — declaring it on the stack overflows the default stack and
-  segfaults. The CLI, GUI, and benchmark all heap-allocate it.
+  segfaults. The GUI and benchmark both heap-allocate it.
 - GLPK handles LP/ILP solving; artificial variables guarantee initial feasibility and signal
   true infeasibility if still used after the ILP solve.
 - The knapsack recovers patterns via a compact per-(item,capacity) decision trace rather than

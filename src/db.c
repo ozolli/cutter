@@ -345,7 +345,9 @@ int db_delete_stock(int64_t id)
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
 
-    return (rc == SQLITE_DONE) ? 0 : -1;
+    if (rc != SQLITE_DONE) return -1;
+    /* Report failure if no row matched (avoids a misleading success message) */
+    return (sqlite3_changes(db) > 0) ? 0 : -1;
 }
 
 int db_clear_stock(void)
