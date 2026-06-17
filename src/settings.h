@@ -7,6 +7,8 @@
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
+#include <stdbool.h>
+
 #define SETTINGS_MAX_PATH 512
 
 /*
@@ -16,6 +18,7 @@ typedef struct {
     char db_path[SETTINGS_MAX_PATH];    /* Path to inventory.db */
     double min_usable_offcut;           /* Minimum usable offcut length (mm) */
     double saw_kerf;                    /* Saw blade width (mm) */
+    bool db_network;                    /* DB on a network share (SMB/NFS): use dotfile locking */
 } AppSettings;
 
 /*

@@ -119,6 +119,14 @@ The solver core (`colgen`, `glpk_master`, `knapsack`, `csv_io`, `ods_io`, `pdf_e
   copying a full pattern array per DP cell.
 - Patterns are generated dynamically during column generation (capped at `MAX_PATTERNS`).
 - The inventory lives in a SQLite database whose path comes from settings (`db_path`).
+- Network-share databases (Synology SMB, NAS, NFS): set `db_network=1` in
+  `settings.conf` (or tick "Base sur le reseau" in the GUI settings). This opens
+  SQLite with the `unix-dotfile` VFS (`db_set_network_mode`), which uses a
+  `<db>.lock` file instead of POSIX byte-range locks — the latter are unreliable
+  on SMB/NFS and silently block writes. WAL mode is never used (it can't work on a
+  network share). Concurrent writers are coordinated by the lock file, but a hard
+  crash can leave a stale `<db>.lock` to remove by hand. Alternative (no app
+  change): mount the share with the `nobrl` option.
 - Offcut priority is a deliberate workshop rule (consume scrap smallest-first before
   buying/cutting new bars). It is implemented by the greedy pre-pass in
   `consume_offcuts_greedy()`, driven by `StockBar.is_offcut` (set in

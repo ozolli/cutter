@@ -13,6 +13,12 @@
 
 static sqlite3 *db = NULL;
 static char default_db_path[512] = "";
+static bool network_mode = false;  /* use a network-safe VFS (SMB/NFS) */
+
+void db_set_network_mode(bool enabled)
+{
+    network_mode = enabled;
+}
 
 /* Get or create default database path */
 const char *db_default_path(void)
@@ -62,8 +68,13 @@ int db_init(const char *db_path)
         return -1;
     }
 
-    /* Open database */
-    int rc = sqlite3_open(path, &db);
+    /* Open database. On a network share, use the "unix-dotfile" VFS: POSIX
+     * byte-range locks (the default) are unreliable on SMB/CIFS/NFS and block
+     * writes, whereas dotfile locking works there. WAL mode is NOT usable on a
+     * network share, so we keep the default rollback journal. */
+    int open_flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+    const char *vfs = network_mode ? "unix-dotfile" : NULL;
+    int rc = sqlite3_open_v2(path, &db, open_flags, vfs);
     if (rc != SQLITE_OK) {
         fprintf(stderr, "Erreur SQLite: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
@@ -71,8 +82,8 @@ int db_init(const char *db_path)
         return -1;
     }
 
-    /* Set a reasonable busy timeout */
-    sqlite3_busy_timeout(db, 5000);
+    /* Busy timeout: longer on a network share to absorb latency */
+    sqlite3_busy_timeout(db, network_mode ? 15000 : 5000);
 
     /* Create tables (without material column for compatibility with existing DBs) */
     const char *create_sql =

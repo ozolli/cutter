@@ -38,6 +38,7 @@ AppSettings settings_default(void)
     /* Default cutting parameters */
     settings.min_usable_offcut = 100.0;  /* 100mm minimum offcut */
     settings.saw_kerf = 5.0;             /* 5mm saw blade */
+    settings.db_network = false;         /* local disk by default */
 
     return settings;
 }
@@ -81,10 +82,16 @@ int settings_load(AppSettings *settings)
             settings->min_usable_offcut = atof(value);
         } else if (strcmp(key, "saw_kerf") == 0) {
             settings->saw_kerf = atof(value);
+        } else if (strcmp(key, "db_network") == 0) {
+            settings->db_network = (atoi(value) != 0);
         }
     }
 
     fclose(f);
+
+    /* Configure the DB layer so it opens the database in network-safe mode */
+    db_set_network_mode(settings->db_network);
+
     return 0;
 }
 
@@ -114,7 +121,11 @@ int settings_save(const AppSettings *settings)
     fprintf(f, "min_usable_offcut=%.1f\n\n", settings->min_usable_offcut);
 
     fprintf(f, "# Largeur du trait de scie (mm)\n");
-    fprintf(f, "saw_kerf=%.1f\n", settings->saw_kerf);
+    fprintf(f, "saw_kerf=%.1f\n\n", settings->saw_kerf);
+
+    fprintf(f, "# Base de donnees sur un partage reseau (SMB/NFS): 1 = oui, 0 = non\n");
+    fprintf(f, "# Active le verrouillage par fichier (.lock) compatible reseau\n");
+    fprintf(f, "db_network=%d\n", settings->db_network ? 1 : 0);
 
     fclose(f);
 

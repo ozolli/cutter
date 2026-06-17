@@ -11,6 +11,7 @@ struct _SettingsView {
 
     GtkWidget *db_path_entry;
     GtkWidget *db_path_button;
+    GtkWidget *db_network_check;
     GtkWidget *min_offcut_spin;
     GtkWidget *saw_kerf_spin;
     GtkWidget *save_button;
@@ -92,12 +93,15 @@ static void on_save_clicked(GtkButton *button, gpointer user_data)
         GTK_SPIN_BUTTON(self->min_offcut_spin));
     self->settings.saw_kerf = gtk_spin_button_get_value(
         GTK_SPIN_BUTTON(self->saw_kerf_spin));
+    self->settings.db_network = gtk_check_button_get_active(
+        GTK_CHECK_BUTTON(self->db_network_check));
 
     /* Save to file */
     if (settings_save(&self->settings) == 0) {
         update_status(self, "Configuration sauvegardee");
 
-        /* Reinitialize database with new path */
+        /* Reinitialize database with new path and locking mode */
+        db_set_network_mode(self->settings.db_network);
         db_close();
         if (db_init(self->settings.db_path) == 0) {
             update_status(self, "Configuration sauvegardee - Base de donnees rechargee");
@@ -164,6 +168,21 @@ static void settings_view_init(SettingsView *self)
     gtk_box_append(GTK_BOX(db_box), self->db_path_button);
 
     gtk_grid_attach(GTK_GRID(grid), db_box, 1, row, 2, 1);
+    row++;
+
+    /* Network-share mode (SMB/NFS) */
+    GtkWidget *net_label = gtk_label_new("Base sur le reseau:");
+    gtk_label_set_xalign(GTK_LABEL(net_label), 0);
+    gtk_grid_attach(GTK_GRID(grid), net_label, 0, row, 1, 1);
+
+    self->db_network_check = gtk_check_button_new_with_label(
+        "Partage reseau (SMB/NFS) - verrouillage par fichier .lock");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(self->db_network_check),
+                                self->settings.db_network);
+    gtk_widget_set_tooltip_text(self->db_network_check,
+        "A activer si la base est sur un serveur de fichiers (Synology SMB, NAS, NFS). "
+        "Necessaire pour pouvoir ecrire ; les postes doivent eviter d'ecrire exactement en meme temps.");
+    gtk_grid_attach(GTK_GRID(grid), self->db_network_check, 1, row, 2, 1);
     row++;
 
     /* Config file path (read-only info) */

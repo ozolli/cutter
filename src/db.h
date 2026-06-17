@@ -28,6 +28,18 @@ typedef struct {
 } StockItem;
 
 /*
+ * Enable/disable network-share mode for the database.
+ *
+ * When enabled, the database is opened with the "unix-dotfile" VFS, which uses
+ * a lock file (<db>.lock) instead of POSIX byte-range locks. POSIX locks are
+ * unreliable on network filesystems (SMB/CIFS, NFS), which prevents writes;
+ * dotfile locking works there and still guards against concurrent writers.
+ *
+ * Must be called BEFORE db_init(). Default is disabled (local disk).
+ */
+void db_set_network_mode(bool enabled);
+
+/*
  * Initialize the database (create tables if needed).
  * Default path: ~/.cutter/inventory.db
  *
