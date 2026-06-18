@@ -150,6 +150,198 @@ static int consume_offcuts_greedy(CSPInstance *instance, int32_t *remaining,
     return num_out;
 }
 
+/*
+ * Post-processing consolidation ("panachage").
+ *
+ * Column generation only guarantees an LP-optimal column pool; the final ILP can
+ * still be forced into a wasteful integer combination (e.g. a near-empty fresh
+ * bar holding a couple of pieces) because the ideal mixed column was never
+ * generated. The reduce pass above only drops whole redundant bars - it never
+ * moves a single piece from one bar into another bar's offcut.
+ *
+ * This pass relocates the pieces of the least-filled fresh bars into the spare
+ * room of other compatible fresh bars (best-fit), emptying and removing whole
+ * bars where possible. Different "boats" therefore get mixed on one bar. It can
+ * only lower the bar count, never raise it, and total production is preserved
+ * (pieces are moved, not added or dropped). Offcut patterns are left untouched,
+ * so the offcut-first priority stays intact.
+ */
+typedef struct {
+    int      stock_id;
+    int32_t *cuts;     /* per-piece-type count (length == num_pieces) */
+    double   used;     /* sum(length) + ncuts*kerf, matching the waste model */
+    bool     alive;
+} ConsolidBar;
+
+static void consolidate_fresh_bars(CSPInstance *instance, CSPSolution *solution,
+                                   int offcut_count)
+{
+    const int NP = instance->num_pieces;
+    const double kerf = instance->saw_kerf;
+
+    /* 1. Expand fresh patterns into individual physical bars */
+    int total_bars = 0;
+    for (int j = offcut_count; j < instance->num_patterns; j++) {
+        if (solution->pattern_usage[j] > 0) total_bars += solution->pattern_usage[j];
+    }
+    if (total_bars < 2) return;
+
+    ConsolidBar *bars = calloc(total_bars, sizeof(ConsolidBar));
+    int *porder = malloc(NP * sizeof(int));        /* piece indices, length desc */
+    int *ord = malloc(total_bars * sizeof(int));   /* alive bars, waste desc */
+    double *tmpwaste = malloc(total_bars * sizeof(double));
+    int *pl_dest = malloc((total_bars > 0 ? total_bars : 1) * NP * sizeof(int));
+    if (!bars || !porder || !ord || !tmpwaste || !pl_dest) {
+        free(bars); free(porder); free(ord); free(tmpwaste); free(pl_dest);
+        return;
+    }
+
+    int nb = 0;
+    bool alloc_ok = true;
+    for (int j = offcut_count; j < instance->num_patterns && alloc_ok; j++) {
+        int u = solution->pattern_usage[j];
+        if (u <= 0) continue;
+        for (int k = 0; k < u; k++) {
+            ConsolidBar *b = &bars[nb];
+            b->cuts = calloc(NP, sizeof(int32_t));
+            if (!b->cuts) { alloc_ok = false; break; }
+            b->stock_id = instance->patterns[j].stock_id;
+            int ncuts = 0; double sumlen = 0.0;
+            for (int i = 0; i < NP; i++) {
+                b->cuts[i] = instance->patterns[j].cuts[i];
+                if (b->cuts[i] > 0) {
+                    ncuts += b->cuts[i];
+                    sumlen += b->cuts[i] * instance->pieces[i].length;
+                }
+            }
+            b->used = sumlen + ncuts * kerf;
+            b->alive = true;
+            nb++;
+        }
+    }
+    if (!alloc_ok) {
+        for (int i = 0; i < nb; i++) free(bars[i].cuts);
+        free(bars); free(porder); free(ord); free(tmpwaste); free(pl_dest);
+        return;
+    }
+
+    /* Piece indices sorted by length descending (place big pieces first) */
+    for (int i = 0; i < NP; i++) porder[i] = i;
+    for (int a = 1; a < NP; a++) {
+        int key = porder[a];
+        double kl = instance->pieces[key].length;
+        int b = a - 1;
+        while (b >= 0 && instance->pieces[porder[b]].length < kl) {
+            porder[b + 1] = porder[b]; b--;
+        }
+        porder[b + 1] = key;
+    }
+
+    #define BAR_WASTE(B) (instance->stocks[(B).stock_id].length - (B).used)
+
+    /* 2. Greedily evacuate the emptiest bars into the others (best-fit) */
+    bool changed = true;
+    while (changed) {
+        changed = false;
+
+        int na = 0;
+        for (int i = 0; i < nb; i++) if (bars[i].alive) ord[na++] = i;
+        /* sort alive bars by waste descending */
+        for (int a = 1; a < na; a++) {
+            int key = ord[a];
+            double kw = BAR_WASTE(bars[key]);
+            int b = a - 1;
+            while (b >= 0 && BAR_WASTE(bars[ord[b]]) < kw) { ord[b + 1] = ord[b]; b--; }
+            ord[b + 1] = key;
+        }
+
+        for (int a = 0; a < na && !changed; a++) {
+            int src = ord[a];
+
+            /* Simulate moving every piece of src into the other alive bars */
+            for (int i = 0; i < nb; i++) tmpwaste[i] = bars[i].alive ? BAR_WASTE(bars[i]) : -1.0;
+            int npl = 0;
+            bool ok = true;
+
+            for (int pi = 0; pi < NP && ok; pi++) {
+                int i = porder[pi];
+                double need = instance->pieces[i].length + kerf;
+                for (int u = 0; u < bars[src].cuts[i] && ok; u++) {
+                    int best = -1;
+                    double best_w = 0.0;
+                    for (int d = 0; d < nb; d++) {
+                        if (d == src || !bars[d].alive) continue;
+                        if (!csp_piece_fits_stock(&instance->pieces[i],
+                                                  &instance->stocks[bars[d].stock_id]))
+                            continue;
+                        if (tmpwaste[d] + 1e-6 < need) continue;
+                        if (best < 0 || tmpwaste[d] < best_w) { best = d; best_w = tmpwaste[d]; }
+                    }
+                    if (best < 0) { ok = false; break; }
+                    tmpwaste[best] -= need;
+                    pl_dest[npl++] = (best << 16) | i;  /* pack dest + piece */
+                }
+            }
+
+            if (!ok) continue;  /* cannot fully empty this bar; try the next */
+
+            /* Commit: replay the recorded placements, then retire src */
+            for (int p = 0; p < npl; p++) {
+                int d = pl_dest[p] >> 16;
+                int i = pl_dest[p] & 0xFFFF;
+                bars[d].cuts[i]++;
+                bars[d].used += instance->pieces[i].length + kerf;
+            }
+            bars[src].alive = false;
+            changed = true;
+        }
+    }
+
+    /* 3. Rebuild the fresh patterns from the consolidated bars */
+    int alive_count = 0;
+    for (int i = 0; i < nb; i++) if (bars[i].alive) alive_count++;
+
+    if (alive_count != total_bars) {  /* something was merged */
+        for (int j = offcut_count; j < instance->num_patterns; j++)
+            solution->pattern_usage[j] = 0;
+
+        int w = offcut_count;
+        for (int bi = 0; bi < nb && w < MAX_PATTERNS; bi++) {
+            if (!bars[bi].alive) continue;
+
+            int found = -1;
+            for (int j = offcut_count; j < w; j++) {
+                if (instance->patterns[j].stock_id == bars[bi].stock_id &&
+                    memcmp(instance->patterns[j].cuts, bars[bi].cuts,
+                           NP * sizeof(int32_t)) == 0) { found = j; break; }
+            }
+            if (found >= 0) { solution->pattern_usage[found]++; continue; }
+
+            CuttingPattern *pat = &instance->patterns[w];
+            memset(pat, 0, sizeof(*pat));
+            pat->pattern_id = w;
+            pat->stock_id = bars[bi].stock_id;
+            memcpy(pat->cuts, bars[bi].cuts, NP * sizeof(int32_t));
+            int ncuts = 0; double sumlen = 0.0;
+            for (int i = 0; i < NP; i++) {
+                if (pat->cuts[i] > 0) {
+                    ncuts += pat->cuts[i];
+                    sumlen += pat->cuts[i] * instance->pieces[i].length;
+                }
+            }
+            double wst = instance->stocks[pat->stock_id].length - (sumlen + ncuts * kerf);
+            pat->waste = wst < 0 ? 0.0 : wst;
+            solution->pattern_usage[w] = 1;
+            w++;
+        }
+        instance->num_patterns = w;
+    }
+
+    #undef BAR_WASTE
+    for (int i = 0; i < nb; i++) free(bars[i].cuts);
+    free(bars); free(porder); free(ord); free(tmpwaste); free(pl_dest);
+}
+
 bool colgen_check_feasibility(const CSPInstance *instance)
 {
     bool feasible = true;
@@ -541,6 +733,10 @@ int colgen_solve(CSPInstance *instance, CSPParameters params, CSPSolution *solut
         }
     }
     free(produced);
+
+    /* Consolidate ("panachage"): move pieces out of poorly-filled fresh bars
+     * into the spare room of other compatible bars, retiring whole bars. */
+    consolidate_fresh_bars(instance, solution, offcut_count);
 
     /* Calculate solution statistics */
     solution->num_bars_used = 0;

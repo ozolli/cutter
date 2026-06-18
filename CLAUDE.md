@@ -78,6 +78,11 @@ default `gui` target.
 5. Solve the final ILP (demands fixed to equality) for the integer solution
 6. Post-process: greedily drop redundant fresh-bar usage so production matches demand exactly
    (offcut patterns are never dropped)
+7. Consolidate ("panachage"): relocate pieces from poorly-filled fresh bars into the spare room
+   of other compatible fresh bars (best-fit), retiring whole bars. This closes the column-
+   generation integer gap (the ILP may leave a near-empty bar because the ideal mixed column was
+   never generated) and lets different "boats" share one bar. It only lowers the bar count and
+   preserves total production; offcut bars are left untouched. See `consolidate_fresh_bars()`.
 
 ## Key Parameters
 
