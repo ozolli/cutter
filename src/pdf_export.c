@@ -64,20 +64,25 @@ static void draw_header(cairo_t *cr, int page, int total_pages)
     cairo_stroke(cr);
 }
 
-/* Draw pieces list table */
-static double draw_pieces_list(cairo_t *cr, double start_y,
-                               const CSPInstance *instance,
-                               const CSPSolution *solution)
+/* Column layout for the pieces list table */
+#define PIECES_COL_LABEL  (MARGIN)
+#define PIECES_COL_MAT    (MARGIN + 180)
+#define PIECES_COL_DIMS   (MARGIN + 240)
+#define PIECES_COL_LENGTH (MARGIN + 360)
+#define PIECES_COL_QTY    (MARGIN + 440)
+#define PIECES_COL_PROD   (MARGIN + 510)
+#define PIECES_ROW_HEIGHT 14.0
+/* Vertical space taken by the section title + column header before the
+ * first data row (title gap 20 + header underline gap 4 + one row). */
+#define PIECES_HEADER_H   (20.0 + 4.0 + PIECES_ROW_HEIGHT)
+/* Lowest baseline a data row may use before it would be clipped. */
+#define PIECES_BOTTOM     (PAGE_HEIGHT - MARGIN - 4.0)
+
+/* Draw the section title + column header at start_y.
+ * Returns the baseline y for the first data row. */
+static double draw_pieces_table_header(cairo_t *cr, double start_y)
 {
-    char buf[256];
     double y = start_y;
-    double col_label = MARGIN;
-    double col_mat = MARGIN + 180;
-    double col_dims = MARGIN + 240;
-    double col_length = MARGIN + 360;
-    double col_qty = MARGIN + 440;
-    double col_prod = MARGIN + 510;
-    double row_height = 14;
 
     /* Section title */
     cairo_set_source_rgb(cr, 0.1, 0.1, 0.1);
@@ -87,22 +92,22 @@ static double draw_pieces_list(cairo_t *cr, double start_y,
     cairo_show_text(cr, "LISTE DES PIECES A DECOUPER");
     y += 20;
 
-    /* Table header */
+    /* Column header */
     cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, 9);
 
-    cairo_move_to(cr, col_label, y);
+    cairo_move_to(cr, PIECES_COL_LABEL, y);
     cairo_show_text(cr, "Label");
-    cairo_move_to(cr, col_mat, y);
+    cairo_move_to(cr, PIECES_COL_MAT, y);
     cairo_show_text(cr, "Matiere");
-    cairo_move_to(cr, col_dims, y);
+    cairo_move_to(cr, PIECES_COL_DIMS, y);
     cairo_show_text(cr, "Dimensions");
-    cairo_move_to(cr, col_length, y);
+    cairo_move_to(cr, PIECES_COL_LENGTH, y);
     cairo_show_text(cr, "Longueur");
-    cairo_move_to(cr, col_qty, y);
+    cairo_move_to(cr, PIECES_COL_QTY, y);
     cairo_show_text(cr, "Qte dem.");
-    cairo_move_to(cr, col_prod, y);
+    cairo_move_to(cr, PIECES_COL_PROD, y);
     cairo_show_text(cr, "Qte prod.");
 
     /* Header line */
@@ -112,7 +117,45 @@ static double draw_pieces_list(cairo_t *cr, double start_y,
     cairo_move_to(cr, MARGIN, y);
     cairo_line_to(cr, PAGE_WIDTH - MARGIN, y);
     cairo_stroke(cr);
-    y += row_height;
+    y += PIECES_ROW_HEIGHT;
+
+    return y;
+}
+
+/* Number of pages the pieces list occupies, given the baseline of the section
+ * title on its first page. Must mirror the pagination in draw_pieces_list(). */
+static int count_pieces_pages(double first_start_y, int num_pieces)
+{
+    int pages = 1;
+    double y = first_start_y + PIECES_HEADER_H;  /* first data row baseline */
+
+    for (int i = 0; i < num_pieces; i++) {
+        if (y > PIECES_BOTTOM) {
+            pages++;
+            y = (MARGIN + HEADER_HEIGHT) + PIECES_HEADER_H;
+        }
+        y += PIECES_ROW_HEIGHT;
+    }
+    return pages;
+}
+
+/* Draw pieces list table. Paginates on its own, advancing *current_page and
+ * drawing the page header (and repeating the table header) on each new page. */
+static void draw_pieces_list(cairo_t *cr, double start_y,
+                             const CSPInstance *instance,
+                             const CSPSolution *solution,
+                             int *current_page, int total_pages)
+{
+    char buf[256];
+    const double col_label = PIECES_COL_LABEL;
+    const double col_mat = PIECES_COL_MAT;
+    const double col_dims = PIECES_COL_DIMS;
+    const double col_length = PIECES_COL_LENGTH;
+    const double col_qty = PIECES_COL_QTY;
+    const double col_prod = PIECES_COL_PROD;
+    const double row_height = PIECES_ROW_HEIGHT;
+
+    double y = draw_pieces_table_header(cr, start_y);
 
     /* Table rows */
     cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
@@ -120,6 +163,16 @@ static double draw_pieces_list(cairo_t *cr, double start_y,
 
     for (int i = 0; i < instance->num_pieces; i++) {
         const PieceDemand *piece = &instance->pieces[i];
+
+        /* Break to a new page before a row would be clipped */
+        if (y > PIECES_BOTTOM) {
+            cairo_show_page(cr);
+            (*current_page)++;
+            draw_header(cr, *current_page, total_pages);
+            y = draw_pieces_table_header(cr, MARGIN + HEADER_HEIGHT);
+            cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+            cairo_set_font_size(cr, 8);
+        }
 
         /* Calculate produced quantity */
         int produced = 0;
@@ -180,8 +233,6 @@ static double draw_pieces_list(cairo_t *cr, double start_y,
 
         y += row_height;
     }
-
-    return y;
 }
 
 /* Draw a single bar with its cuts */
@@ -343,7 +394,25 @@ int pdf_export_solution(const char *filename,
     int bars_per_page = (int)(usable_height / BAR_SPACING);
     if (bars_per_page < 1) bars_per_page = 1;
 
-    int total_pages = (total_bars + bars_per_page - 1) / bars_per_page;
+    int bar_pages = (total_bars + bars_per_page - 1) / bars_per_page;
+
+    /* The pieces list follows the bars: either on the last bar page (if there
+     * is room) or on fresh pages, and it paginates on its own. Account for
+     * those pages so the "Page X/Y" footer is correct. */
+    int bars_on_last_page = total_bars - (bar_pages - 1) * bars_per_page;
+    double last_bar_y = MARGIN + HEADER_HEIGHT + bars_on_last_page * BAR_SPACING;
+    double after_bars_space = PAGE_HEIGHT - MARGIN - last_bar_y;
+
+    int total_pages;
+    if (after_bars_space < 120) {
+        /* Pieces list starts on a new page */
+        total_pages = bar_pages +
+            count_pieces_pages(MARGIN + HEADER_HEIGHT + 20, instance->num_pieces);
+    } else {
+        /* Pieces list shares the last bar page; only extra pages add up */
+        total_pages = bar_pages +
+            count_pieces_pages(last_bar_y + 20, instance->num_pieces) - 1;
+    }
 
     /* Create PDF surface */
     cairo_surface_t *surface = cairo_pdf_surface_create(filename, PAGE_WIDTH, PAGE_HEIGHT);
@@ -400,8 +469,8 @@ int pdf_export_solution(const char *filename,
         current_y = MARGIN + HEADER_HEIGHT;
     }
 
-    /* Draw pieces list */
-    draw_pieces_list(cr, current_y + 20, instance, solution);
+    /* Draw pieces list (paginates on its own) */
+    draw_pieces_list(cr, current_y + 20, instance, solution, &current_page, total_pages);
 
     /* Finalize */
     cairo_destroy(cr);
